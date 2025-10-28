@@ -4,7 +4,18 @@ import numpy as np
 import os
 from datetime import datetime
 import base64
+import requests
 
+def send_face_command(face_type, esp32_ip):
+    try:
+        url = f"http://{esp32_ip}/face_command?type={face_type}"
+        response = requests.get(url, timeout=5)
+        return response.status_code == 200
+    except:
+        return False
+
+# Llamar esta función cuando detectes un rostro
+send_face_command("known", "192.168.1.100")  # Ejemplo para rostro conocido
 app = Flask(__name__)
 
 # Cargar clasificadores Haar Cascade para detección facial
