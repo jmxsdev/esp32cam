@@ -94,7 +94,15 @@ def recognize_face():
         
         if "error" in result:
             return jsonify(result), 500
-            
+
+        # Enviar comando de vuelta al ESP32-CAM que hizo la solicitud
+        esp32_ip = request.remote_addr
+        face_type = result.get("face_type", "no_face")
+        command_sent = send_face_command(face_type, esp32_ip)
+        
+        if not command_sent:
+            print(f"⚠️ No se pudo enviar el comando al ESP32-CAM en {esp32_ip}")
+
         return jsonify(result), 200
         
     except Exception as e:
