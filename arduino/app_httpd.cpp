@@ -20,6 +20,53 @@
 #include "sdkconfig.h"
 #include "camera_index.h"
 #include "board_config.h"
+// ===========================
+// Sistema de Autenticación Admin
+// ===========================
+#define ADMIN_USERNAME "admin"
+#define ADMIN_PASSWORD "Sjlp.2022"  // Usa la misma de WiFi o cambia
+
+// Función para verificar autenticación
+bool authenticateAdmin(httpd_req_t *req) {
+    char auth_header[100];
+    
+    // Obtener header de autorización
+    if (httpd_req_get_hdr_value_str(req, "Authorization", auth_header, sizeof(auth_header)) != ESP_OK) {
+        return false;
+    }
+    
+    // Verificar formato Basic Auth
+    if (strncmp(auth_header, "Basic ", 6) != 0) {
+        return false;
+    }
+    
+    // Decodificar credenciales (base64)
+    char credentials[50];
+    size_t credentials_len;
+    esp_err_t result = httpd_base64_decode((char*)auth_header + 6, strlen(auth_header) - 6, 
+                                          credentials, &credentials_len);
+    
+    if (result != ESP_OK || credentials_len >= sizeof(credentials)) {
+        return false;
+    }
+    credentials[credentials_len] = '\0';
+    
+    // Verificar usuario:contraseña
+    char expected_credentials[50];
+    snprintf(expected_credentials, sizeof(expected_credentials), "%s:%s", 
+             ADMIN_USERNAME, ADMIN_PASSWORD);
+    
+    return (strcmp(credentials, expected_credentials) == 0);
+}
+
+// Enviar respuesta de no autorizado
+esp_err_t send_unauthorized_response(httpd_req_t *req) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"ESP32-CAM Admin\"");
+    const char* error_msg = "{\"error\": \"Authentication required\"}";
+    return httpd_resp_send(req, error_msg, strlen(error_msg));
+}
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -788,6 +835,35 @@ void startCameraServer() {
 #endif
   };
 
+  // ===========================
+// Rutas Protegidas Admin
+// ===========================
+httpd_uri_t admin_uri = {
+    .uri = "/admin",
+    .method = HTTP_GET,
+    .handler = admin_handler,
+    .user_ctx = NULL
+};
+
+httpd_uri_t enable_recognition_uri = {
+    .uri = "/admin/enable_recognition",
+    .method = HTTP_POST,
+    .handler = enable_recognition_handler,
+    .user_ctx = NULL
+};
+
+httpd_uri_t stats_uri = {
+    .uri = "/admin/stats",
+    .method = HTTP_GET,
+    .handler = stats_handler,
+    .user_ctx = NULL
+};
+
+// Registrar handlers protegidos
+httpd_register_uri_handler(camera_httpd, &admin_uri);
+httpd_register_uri_handler(camera_httpd, &enable_recognition_uri);
+httpd_register_uri_handler(camera_httpd, &stats_uri);
+
   httpd_uri_t pll_uri = {
     .uri = "/pll",
     .method = HTTP_GET,
@@ -845,4 +921,139 @@ void setupLedFlash() {
 #else
   log_i("LED flash is disabled -> LED_GPIO_NUM undefined");
 #endif
+}
+
+// ===========================
+// Handlers Protegidos para Admin
+// ===========================
+
+// Handler para dashboard admin (protegido)
+static esp_err_t admin_handler(httpd_req_t *req) {
+    // Verificar autenticación
+    if (!authenticateAdmin(req)) {
+        return send_unauthorized_response(req);
+    }
+    
+    // Contenido del dashboard admin
+    const char* admin_html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32-CAM Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
+        .card { background: white; padding: 20px; margin: 10px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>🛡️ Panel de Administración ESP32-CAM</h2>
+        <p><strong>IP:</strong> %s</p>
+        <p><strong>Estado:</strong> <span id="status">Conectado</span></p>
+    </div>
+    
+    <div class="card">
+        <h3>🎭 Control de Reconocimiento Facial</h3>
+        <button class="btn-success" onclick="enableRecognition()">✅ Activar Reconocimiento</button>
+        <button class="btn-danger" onclick="disableRecognition()">❌ Desactivar Reconocimiento</button>
+        <button class="btn-warning" onclick="trainFace()">🎓 Entrenar Nuevo Rostro</button>
+    </div>
+    
+    <div class="card">
+        <h3>📊 Estadísticas</h3>
+        <p>Rostros detectados hoy: <span id="facesDetected">0</span></p>
+        <p>Rostros conocidos: <span id="knownFaces">0</span></p>
+        <p>Intrusos detectados: <span id="intruders">0</span></p>
+    </div>
+    
+    <div class="card">
+        <h3>🔧 Configuración del Sistema</h3>
+        <button onclick="restartCamera()">🔄 Reiniciar Cámara</button>
+        <button onclick="viewLogs()">📋 Ver Logs</button>
+        <button onclick="resetStats()">🔄 Reiniciar Estadísticas</button>
+    </div>
+
+    <script>
+        function enableRecognition() {
+            fetch('/admin/enable_recognition', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => alert(data.message || 'Reconocimiento activado'));
+        }
+        
+        function disableRecognition() {
+            fetch('/admin/disable_recognition', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => alert(data.message || 'Reconocimiento desactivado'));
+        }
+        
+        function trainFace() {
+            const name = prompt('Nombre del nuevo rostro:');
+            if (name) {
+                fetch('/admin/train_face?name=' + encodeURIComponent(name), { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => alert(data.message || 'Entrenamiento iniciado'));
+            }
+        }
+        
+        function restartCamera() {
+            fetch('/admin/restart_camera', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => alert(data.message || 'Cámara reiniciada'));
+        }
+        
+        // Actualizar estadísticas cada 5 segundos
+        setInterval(() => {
+            fetch('/admin/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('facesDetected').textContent = data.faces_detected || 0;
+                    document.getElementById('knownFaces').textContent = data.known_faces || 0;
+                    document.getElementById('intruders').textContent = data.intruders || 0;
+                });
+        }, 5000);
+    </script>
+</body>
+</html>
+    )rawliteral";
+    
+    // Obtener IP para mostrar en el dashboard
+    char ip_buffer[20];
+    snprintf(ip_buffer, sizeof(ip_buffer), "%s", WiFi.localIP().toString().c_str());
+    
+    char response_buffer[8000];
+    snprintf(response_buffer, sizeof(response_buffer), admin_html, ip_buffer);
+    
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, response_buffer, strlen(response_buffer));
+}
+
+// Handler para habilitar reconocimiento facial
+static esp_err_t enable_recognition_handler(httpd_req_t *req) {
+    if (!authenticateAdmin(req)) {
+        return send_unauthorized_response(req);
+    }
+    
+    // Aquí activarías el reconocimiento facial
+    // faceRecognitionActive = true;
+    
+    const char* response = "{\"status\":\"success\", \"message\":\"Reconocimiento facial activado\"}";
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, response, strlen(response));
+}
+
+// Handler para estadísticas del sistema
+static esp_err_t stats_handler(httpd_req_t *req) {
+    if (!authenticateAdmin(req)) {
+        return send_unauthorized_response(req);
+    }
+    
+    // Datos de ejemplo - reemplaza con datos reales
+    const char* stats = "{\"faces_detected\": 15, \"known_faces\": 3, \"intruders\": 12}";
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, stats, strlen(stats));
 }
