@@ -60,7 +60,31 @@ El código del microcontrolador está dividido principalmente en dos archivos.
   - **Recepción de Comandos**: Este archivo configura un servidor web en el propio ESP32. La función clave es `face_command_handler`, que está asociada a la ruta `/face_command`.
   - **Control de LEDs**: `face_command_handler` lee el parámetro `type` de la URL (ej. `?type=known`). Dependiendo del valor, utiliza `gpio_set_level()` para encender o apagar los LEDs conectados a los **GPIO 12 (verde)** y **GPIO 13 (rojo)**. Aquí es donde la "señal de respuesta" se materializa en una acción física.
 
-## 4. Configuración y Puesta en Marcha
+## 4. Endpoints y Rutas URL
+
+A continuación se listan las rutas más relevantes del proyecto.
+
+### API de Python (`main.py`)
+
+| Método | Ruta                  | Descripción                                               |
+|--------|-----------------------|-----------------------------------------------------------|
+| `POST` | `/recognize`          | Recibe una imagen y la procesa para el reconocimiento.     |
+| `GET`  | `/status`             | Devuelve el estado de funcionamiento de la API.           |
+| `POST` | `/admin/add_face`     | (Simulado) Endpoint para agregar un nuevo rostro conocido. |
+| `GET`  | `/admin/known_faces`  | (Simulado) Lista los rostros actualmente conocidos.       |
+
+### Servidor Web del ESP32-CAM
+
+| Método | Ruta             | Descripción                                                                 |
+|--------|------------------|-----------------------------------------------------------------------------|
+| `GET`  | `/`              | Muestra una página web con el streaming de video y controles de la cámara.  |
+| `GET`  | `/capture`       | Captura y devuelve una única imagen estática en formato JPG.                |
+| `GET`  | `/stream`        | Inicia un streaming de video en formato MJPEG.                              |
+| `GET`  | `/status`        | Devuelve un JSON con el estado y configuración actual de la cámara.         |
+| `GET`  | `/control`       | Permite cambiar parámetros de la cámara (ej. `?var=framesize&val=8`).       |
+| `GET`  | `/face_command`  | **Ruta clave**: Recibe el comando desde la API de Python (ej. `?type=known`). |
+
+## 5. Configuración y Puesta en Marcha
 
 ### Hardware
 1.  Un módulo ESP32-CAM.
