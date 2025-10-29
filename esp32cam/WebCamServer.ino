@@ -34,7 +34,7 @@ int unknownFacesCount = 0;
 
 // Variables para control de timing
 unsigned long lastCaptureTime = 0;
-const unsigned long CAPTURE_INTERVAL = 5000; // 5 segundos entre capturas
+const unsigned long CAPTURE_INTERVAL = 1000; // 1 segundo entre capturas
 
 void startCameraServer();
 void setupLedFlash();
@@ -203,7 +203,7 @@ void setup() {
 
   if (config.pixel_format == PIXFORMAT_JPEG) {
     if (psramFound()) {
-      config.jpeg_quality = 10;
+      config.jpeg_quality = 14;
       config.fb_count = 2;
       config.grab_mode = CAMERA_GRAB_LATEST;
     } else {
