@@ -47,6 +47,11 @@ static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" 
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
 
+// Declaración externa del handler
+extern "C" {
+    esp_err_t face_command_handler(httpd_req_t *req);
+}
+
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
 
@@ -818,6 +823,20 @@ void startCameraServer() {
 #endif
   };
 
+  // Agrega esto junto con los otros httpd_uri_t
+httpd_uri_t face_command_uri = {
+  .uri = "/face_command",
+  .method = HTTP_GET,
+  .handler = face_command_handler,
+  .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+  ,
+  .is_websocket = true,
+  .handle_ws_control_frames = false,
+  .supported_subprotocol = NULL
+#endif
+};
+
   ra_filter_init(&ra_filter, 20);
 
   log_i("Starting web server on port: '%d'", config.server_port);
@@ -833,6 +852,7 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &greg_uri);
     httpd_register_uri_handler(camera_httpd, &pll_uri);
     httpd_register_uri_handler(camera_httpd, &win_uri);
+    httpd_register_uri_handler(camera_httpd, &face_command_uri);  // Register face command handler
   }
 
   config.server_port += 1;

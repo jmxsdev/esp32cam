@@ -1,2 +1,3 @@
 .venv/
 *.log
+known_faces_encodings.json

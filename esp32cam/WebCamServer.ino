@@ -1,3 +1,4 @@
+#include "esp_http_server.h"
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <HTTPClient.h>  // Para peticiones HTTP
@@ -18,6 +19,7 @@ const char *password = "Sjlp.2022";
 // ===========================
 #define LED_KNOWN 12      // GPIO12 - LED Verde (Rostro Conocido)
 #define LED_UNKNOWN 13    // GPIO13 - LED Rojo (Rostro Desconocido)
+#define LED_FLASH 4       // GPIO4 - Flash de la cámara
 
 // ===========================
 // API Configuration
@@ -36,9 +38,94 @@ int unknownFacesCount = 0;
 unsigned long lastCaptureTime = 0;
 const unsigned long CAPTURE_INTERVAL = 1000; // 1 segundo entre capturas
 
+// ===========================
+// Declaraciones de funciones
+// ===========================
 void startCameraServer();
 void setupLedFlash();
+void blinkFlash(int times, int delayMs);
+void controlLEDs(bool known, bool unknown);
+void captureAndSendFrame();
+String getFaceRecognitionStats();
 
+// ===========================
+// Función para hacer parpadear el flash
+// ===========================
+void blinkFlash(int times, int delayMs) {
+  pinMode(LED_FLASH, OUTPUT);
+  for (int i = 0; i < times; i++) {
+    digitalWrite(LED_FLASH, HIGH);
+    delay(delayMs);
+    digitalWrite(LED_FLASH, LOW);
+    if (i < times - 1) {
+      delay(delayMs);
+    }
+  }
+}
+
+// Helper function to parse GET requests, copied from app_httpd.cpp
+static esp_err_t parse_get(httpd_req_t *req, char **obuf) {
+  char *buf = NULL;
+  size_t buf_len = 0;
+
+  buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1) {
+    buf = (char *)malloc(buf_len);
+    if (!buf) {
+      httpd_resp_send_500(req);
+      return ESP_FAIL;
+    }
+    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+      *obuf = buf;
+      return ESP_OK;
+    }
+    free(buf);
+  }
+  httpd_resp_send_404(req);
+  return ESP_FAIL;
+}
+
+// ===========================
+// Endpoint para recibir comandos de la API Python
+// ===========================
+extern "C" esp_err_t face_command_handler(httpd_req_t *req) {
+  char* buf = NULL;
+  
+  if (parse_get(req, &buf) != ESP_OK) {
+    return ESP_FAIL;
+  }
+  
+  char command[32];
+  if (httpd_query_key_value(buf, "type", command, sizeof(command)) == ESP_OK) {
+    Serial.printf("🎯 Comando recibido desde Python: %s\n", command);
+    
+    if (strcmp(command, "known") == 0) {
+      Serial.println("✅ ROSTRO CONOCIDO detectado");
+      controlLEDs(true, false);
+      knownFacesCount++;
+      
+      // Parpadear flash 5 veces
+      Serial.println("💡 Flash parpadeando por rostro conocido");
+      blinkFlash(5, 200);
+      
+    } else if (strcmp(command, "unknown") == 0) {
+      Serial.println("🚨 ROSTRO DESCONOCIDO detectado");
+      controlLEDs(false, true);
+      unknownFacesCount++;
+      
+    } else if (strcmp(command, "no_face") == 0) {
+      Serial.println("👀 No se detectaron rostros");
+      controlLEDs(false, false);
+    }
+    
+    facesDetectedCount++;
+  }
+  
+  free(buf);
+  
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, "OK", 2);
+}
 // Función para controlar LEDs
 void controlLEDs(bool known, bool unknown) {
   digitalWrite(LED_KNOWN, known);
@@ -54,6 +141,10 @@ void handleFaceRecognitionCommand(const char* command) {
     Serial.println("✅ ROSTRO CONOCIDO detectado");
     controlLEDs(true, false); // Verde ON, Rojo OFF
     knownFacesCount++;
+    
+    // Parpadear flash 5 veces cuando detecta rostro conocido
+    Serial.println("💡 Flash parpadeando por rostro conocido");
+    blinkFlash(5, 200); // 5 veces, 200ms entre parpadeos
   } 
   else if (strcmp(command, "unknown") == 0) {
     Serial.println("🚨 ROSTRO DESCONOCIDO - INTRUSO");
@@ -104,14 +195,29 @@ void captureAndSendFrame() {
     String response = http.getString();
     Serial.printf("✅ API Response: %d - %s\n", httpCode, response.c_str());
     
-    // Procesar respuesta (la API Python ahora enviará comandos HTTP separados)
-    // Por ahora solo logueamos la respuesta
+    // Procesar respuesta de la API Python
+    if (response == "known" || response == "unknown" || response == "no_face") {
+      handleFaceRecognitionCommand(response.c_str());
+    }
   } else {
     Serial.printf("❌ API Error: %s\n", http.errorToString(httpCode).c_str());
   }
   
   http.end();
   esp_camera_fb_return(fb);
+}
+
+// ===========================
+// Función para obtener estadísticas (útil para el dashboard)
+// ===========================
+String getFaceRecognitionStats() {
+  String stats = "{";
+  stats += "\"faces_detected\": " + String(facesDetectedCount) + ",";
+  stats += "\"known_faces\": " + String(knownFacesCount) + ",";
+  stats += "\"unknown_faces\": " + String(unknownFacesCount) + ",";
+  stats += "\"face_recognition_enabled\": " + String(faceRecognitionEnabled ? "true" : "false");
+  stats += "}";
+  return stats;
 }
 
 void setup() {
@@ -125,7 +231,12 @@ void setup() {
   // ===========================
   pinMode(LED_KNOWN, OUTPUT);
   pinMode(LED_UNKNOWN, OUTPUT);
+  pinMode(LED_FLASH, OUTPUT);
   controlLEDs(false, false); // Apagar ambos al inicio
+  
+  // Parpadeo de flash 5 veces al inicio
+  Serial.println("💡 Flash parpadeando 5 veces al inicio...");
+  blinkFlash(5, 300); // 5 veces, 300ms entre parpadeos
   
   // Parpadeo de LEDs para indicar inicio
   Serial.println("💡 Probando LEDs con parpadeo inicial...");
@@ -244,10 +355,3 @@ void loop() {
   
   delay(1000);
 }
-
-// ===========================
-// Función para obtener estadísticas (útil para el dashboard)
-// ===========================
-String getFaceRecognitionStats() {
-  String stats = "{";
-  stats += "\"faces_detected\":
