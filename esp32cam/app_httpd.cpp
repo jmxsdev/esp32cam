@@ -669,61 +669,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
     return httpd_resp_send_500(req);
   }
 }
-// Agrega este handler después de los demás handlers existentes
-static esp_err_t face_command_handler(httpd_req_t *req) {
-    char command[64];
-    
-    if (httpd_req_get_url_query_str(req, command, sizeof(command)) == ESP_OK) {
-        char face_type[32];
-        if (httpd_query_key_value(command, "type", face_type, sizeof(face_type)) == ESP_OK) {
-            if (strcmp(face_type, "known") == 0) {
-                // LED conocido (GPIO12) ON, LED desconocido (GPIO13) OFF
-                gpio_set_level(GPIO_NUM_12, 1);
-                gpio_set_level(GPIO_NUM_13, 0);
-                log_i("Face Command: KNOWN - LED Verde ON, LED Rojo OFF");
-            } else if (strcmp(face_type, "unknown") == 0) {
-                // LED conocido (GPIO12) OFF, LED desconocido (GPIO13) ON
-                gpio_set_level(GPIO_NUM_12, 0);
-                gpio_set_level(GPIO_NUM_13, 1);
-                log_i("Face Command: UNKNOWN - LED Verde OFF, LED Rojo ON");
-            } else if (strcmp(face_type, "no_face") == 0) {
-                // Ambos LEDs OFF
-                gpio_set_level(GPIO_NUM_12, 0);
-                gpio_set_level(GPIO_NUM_13, 0);
-                log_i("Face Command: NO FACE - LEDs OFF");
-            } else {
-                log_e("Unknown face type: %s", face_type);
-            }
-        } else {
-            log_e("Failed to parse face type from query");
-        }
-    } else {
-        log_e("Failed to get query string");
-    }
-    
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    return httpd_resp_send(req, "OK", 2);
-}
-void setupGPIOs() {
-    // Configurar GPIO 12 y 13 como salidas para los LEDs
-    gpio_config_t io_conf;
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1ULL << GPIO_NUM_12) | (1ULL << GPIO_NUM_13);
-    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_config(&io_conf);
-    
-    // Apagar ambos LEDs al inicio
-    gpio_set_level(GPIO_NUM_12, 0);
-    gpio_set_level(GPIO_NUM_13, 0);
-    
-    log_i("GPIOs 12 and 13 configured for LED control");
-}
-void startCameraServer() {
 
-  // Inicializar GPIOs para LEDs
-  setupGPIOs();
+void startCameraServer() {
     
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.max_uri_handlers = 16;
@@ -870,13 +817,6 @@ void startCameraServer() {
     .supported_subprotocol = NULL
 #endif
   };
-  httpd_uri_t face_command_uri = {
-    .uri = "/face_command",
-    .method = HTTP_GET,
-    .handler = face_command_handler,
-    .user_ctx = NULL
-};
-httpd_register_uri_handler(camera_httpd, &face_command_uri);
 
   ra_filter_init(&ra_filter, 20);
 

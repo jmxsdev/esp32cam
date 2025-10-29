@@ -52,25 +52,17 @@ void handleFaceRecognitionCommand(const char* command) {
   
   if (strcmp(command, "known") == 0) {
     Serial.println("✅ ROSTRO CONOCIDO detectado");
-    controlLEDs(true, false);
+    controlLEDs(true, false); // Verde ON, Rojo OFF
     knownFacesCount++;
-    
-    // Mantener LED encendido por 3 segundos
-    delay(3000);
-    controlLEDs(false, false);
   } 
   else if (strcmp(command, "unknown") == 0) {
     Serial.println("🚨 ROSTRO DESCONOCIDO - INTRUSO");
-    controlLEDs(false, true);
+    controlLEDs(false, true); // Verde OFF, Rojo ON
     unknownFacesCount++;
-    
-    // Mantener LED encendido por 3 segundos
-    delay(3000);
-    controlLEDs(false, false);
   }
   else if (strcmp(command, "no_face") == 0) {
     Serial.println("👀 No se detectaron rostros");
-    // No hacer nada, LEDs permanecen apagados
+    controlLEDs(false, false); // Ambos LEDs OFF
   }
   
   facesDetectedCount++;
@@ -122,34 +114,6 @@ void captureAndSendFrame() {
   esp_camera_fb_return(fb);
 }
 
-// ===========================
-// SIMULACIÓN de Reconocimiento Facial (para pruebas sin API)
-// ===========================
-void simulateFaceRecognition() {
-  static unsigned long lastDetection = 0;
-  static bool knownFace = true;
-  
-  // Simular detección cada 15 segundos
-  if (millis() - lastDetection > 15000) {
-    lastDetection = millis();
-    
-    if (knownFace) {
-      Serial.println("✅ [SIMULACIÓN] ROSTRO CONOCIDO DETECTADO");
-      controlLEDs(true, false);  // Verde ON, Rojo OFF
-    } else {
-      Serial.println("🚨 [SIMULACIÓN] ROSTRO DESCONOCIDO - INTRUSO");
-      controlLEDs(false, true);  // Verde OFF, Rojo ON
-    }
-    
-    // Alternar para próxima simulación
-    knownFace = !knownFace;
-    
-    // Apagar LEDs después de 3 segundos
-    delay(3000);
-    controlLEDs(false, false);
-  }
-}
-
 void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
@@ -163,13 +127,14 @@ void setup() {
   pinMode(LED_UNKNOWN, OUTPUT);
   controlLEDs(false, false); // Apagar ambos al inicio
   
-  // Test rápido de LEDs
-  Serial.println("💡 Probando LEDs...");
-  controlLEDs(true, false);
-  delay(300);
-  controlLEDs(false, true);
-  delay(300);
-  controlLEDs(false, false);
+  // Parpadeo de LEDs para indicar inicio
+  Serial.println("💡 Probando LEDs con parpadeo inicial...");
+  for (int i = 0; i < 3; i++) {
+    controlLEDs(true, true); // Ambos ON
+    delay(250);
+    controlLEDs(false, false); // Ambos OFF
+    delay(250);
+  }
 
   // ===========================
   // Configuración de Cámara
@@ -275,9 +240,6 @@ void loop() {
       lastCaptureTime = millis();
       captureAndSendFrame();
     }
-  } else {
-    // Si no hay WiFi, usar simulación
-    simulateFaceRecognition();
   }
   
   delay(1000);
@@ -288,10 +250,4 @@ void loop() {
 // ===========================
 String getFaceRecognitionStats() {
   String stats = "{";
-  stats += "\"faces_detected\":" + String(facesDetectedCount) + ",";
-  stats += "\"known_faces\":" + String(knownFacesCount) + ",";
-  stats += "\"unknown_faces\":" + String(unknownFacesCount) + ",";
-  stats += "\"recognition_enabled\":" + String(faceRecognitionEnabled);
-  stats += "}";
-  return stats;
-}
+  stats += "\"faces_detected\":
